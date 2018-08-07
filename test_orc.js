@@ -81,7 +81,7 @@ SMTP	1
 2.isAgent字段已为1的主机不参与决策
 3.总权值并列第一的主机只取第一个（暂定）
 4.优先在新发现的节点中选取（isnew字段为1）
-5.收尾工作（把所有的isnew字段置为0,并将选取出来的新节点的isAgent字段置为1）
+5.收尾工作（把所有的isnew字段置为0，所有的HisDel字段置为1，并将选取出来的新节点的isAgent字段置为1）
 *************************************************************/
 oracledb.getConnection(
 	config,
@@ -102,7 +102,11 @@ oracledb.getConnection(
 									decisionMaker(connection).then(() => {
 										decisionMakerInOld(connection).then(() => {
 											finalUpdateAfterDecision(connection);
-										});
+										}).catch(
+											res => {
+												console.log('决策程序异常退出，错误原因：', res);
+											}
+										);
 									});
 								});
 							});
@@ -141,7 +145,7 @@ function calculateOpenportNumWeightInDB(connection){
 	return new Promise((resolve, reject) => {
 		function _calculateOpenportNumWeightInDB(connection){
 			console.log('1.计算开放端口子权值阶段');
-			connection.execute("select \"IP\" as \"tIP\", \"HopenPortNum\" as \"tHopenPortNum\" from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' ORDER BY \"HopenPortNum\" DESC",
+			connection.execute("select \"IP\" as \"tIP\", \"HopenPortNum\" as \"tHopenPortNum\" from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' and \"HisDel\"=\'0\' ORDER BY \"HopenPortNum\" DESC",
 						  function(err, result){
 				if(err){
 					console.error(err.message);
@@ -195,7 +199,7 @@ function calculateServiceNumWeightInDB(connection){
 	return new Promise((resolve,reject) => {
 		function _calculateServiceNumWeightInDB(connection){
 			console.log('2.计算服务种类个数子权值阶段');
-			connection.execute("select \"IP\" as \"tIP\", \"HserviceNum\" as \"tHserviceNum\" from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' ORDER BY \"HserviceNum\" DESC ", function(err,result){
+			connection.execute("select \"IP\" as \"tIP\", \"HserviceNum\" as \"tHserviceNum\" from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' and \"HisDel\"=\'0\' ORDER BY \"HserviceNum\" DESC ", function(err,result){
 				if(err){
 					console.error(err.message);
 					doRelease(connection);
@@ -245,7 +249,7 @@ function calculateTrafficWeightInDB(connection){
 	return new Promise((resolve, reject) => {
 		function _calculateTrafficWeightInDB(connection){
 			console.log('3.计算通信量子权值字段');
-			connection.execute("select \"IP\" as \"tIP\", \"Htraffic\" as \"tHtraffic\" from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' ORDER BY \"Htraffic\" DESC ", function(err, result){
+			connection.execute("select \"IP\" as \"tIP\", \"Htraffic\" as \"tHtraffic\" from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' and \"HisDel\"=\'0\' ORDER BY \"Htraffic\" DESC ", function(err, result){
 				if(err){
 					console.error(err.message);
 					doRelease(connection);
@@ -295,7 +299,7 @@ function calculateFrequencyWeightInDB(connection){
 	return new Promise((resolve, reject) => {
 		function _calculateFrequencyWeightInDB(connection){
 			console.log('4.计算通信频次子权值阶段');
-			connection.execute("select \"IP\" as \"tIP\", \"Hfrequency\" as \"tHfrequency\" from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' ORDER BY \"Hfrequency\" DESC ", function(err, result){
+			connection.execute("select \"IP\" as \"tIP\", \"Hfrequency\" as \"tHfrequency\" from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' and \"HisDel\"=\'0\' ORDER BY \"Hfrequency\" DESC ", function(err, result){
 				if(err){
 					console.error(err.message);
 					doRelease(connection);
@@ -345,7 +349,7 @@ function calculateServicePriority(connection){
 	return new Promise((resolve, reject) => {
 		function _calculateServicePriority(connection) {
 		console.log('5.计算业务优先级阶段');
-		connection.execute("select \"STUDY\".\"Host\".\"IP\" as \"tIP\", \"Stelnet\" as \"tStelnet\", \"Ssnmp\" as \"tSsnmp\", \"Sicmp\" as \"tSicmp\", \"Sdns\" as \"tSdns\", \"Shttp\" as \"tShttp\", \"Sftp\" as \"tSftp\", \"Stftp\" as \"tStftp\", \"Sntp\" as \"tSntp\", \"Spop3\" as \"tSpop3\", \"Ssmtp\" as \"tSsmtp\" from \"STUDY\".\"Host\", \"STUDY\".\"Service\" where \"isAgent\"=\'0\' and \"STUDY\".\"Host\".\"IP\"=\"STUDY\".\"Service\".\"IP\"", function(err,result){
+		connection.execute("select \"STUDY\".\"Host\".\"IP\" as \"tIP\", \"Stelnet\" as \"tStelnet\", \"Ssnmp\" as \"tSsnmp\", \"Sicmp\" as \"tSicmp\", \"Sdns\" as \"tSdns\", \"Shttp\" as \"tShttp\", \"Sftp\" as \"tSftp\", \"Stftp\" as \"tStftp\", \"Sntp\" as \"tSntp\", \"Spop3\" as \"tSpop3\", \"Ssmtp\" as \"tSsmtp\" from \"STUDY\".\"Host\", \"STUDY\".\"Service\" where \"isAgent\"=\'0\' and \"STUDY\".\"Host\".\"IP\"=\"STUDY\".\"Service\".\"IP\" and \"STUDY\".\"Host\".\"HisDel\"=\'0\' ", function(err,result){
 				if(err){
 					console.error(err.message);
 					doRelease(connection);
@@ -432,7 +436,7 @@ function calculateTotalWeightInDB(connection){
 	return new Promise((resolve, reject) => {
 		function _calculateTotalWeightInDB(connection){
 			console.log('6.计算总权值及更新阶段');
-			connection.execute("select \"IP\" as \"tIP\", \"serviceWeight\" as \"tserviceWeight\", \"trafficWeight\" as \"ttrafficWeight\", \"frequencyWeight\" as \"tfrequencyWeight\", \"portNumWeight\" as \"tportNumWeight\", \"servicePriority\" as \"tservicePriority\", \"osWeight\" as \"tosweight\" from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' ", function(err, result){
+			connection.execute("select \"IP\" as \"tIP\", \"serviceWeight\" as \"tserviceWeight\", \"trafficWeight\" as \"ttrafficWeight\", \"frequencyWeight\" as \"tfrequencyWeight\", \"portNumWeight\" as \"tportNumWeight\", \"servicePriority\" as \"tservicePriority\", \"osWeight\" as \"tosweight\" from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' and \"HisDel\"=\'0\'", function(err, result){
 				if(err){
 					console.error(err.message);
 					doRelease(connection);
@@ -483,7 +487,7 @@ function decisionMaker(connection){
 		function _decisionMaker(connection){
 			console.log('***********决策阶段1（选举）*************');
 			//首先选取同时满足isAgent=0和isNew=1的节点
-			connection.execute("select \"IP\" as \"tIP\",\"Hweight\" as \"tHweight\"  from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' and \"isNew\"=\'1\' ORDER BY \"Hweight\" DESC  ",
+			connection.execute("select \"IP\" as \"tIP\",\"Hweight\" as \"tHweight\"  from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' and \"isNew\"=\'1\' and \"HisDel\"=\'0\' ORDER BY \"Hweight\" DESC  ",
 							function(err, result){
 				if(err){
 					console.error(err.message);
@@ -554,15 +558,15 @@ function decisionMakerInOld(connection){
 					if(hasNewHosts && (typeof newIndividualAgentIP === "undefined")){//当且仅当hasNewHosts确实为假且没有选举结果的时候，才在老节点中进行选举
 						console.log('严重错误？！');
 						//doRelease(connection);
-						reject();
+						reject('严重错误，在函数decisionMakerInOld()中，有新节点但没决策出结果');
 					}
 					if(typeof newIndividualAgentIP !== "undefined"){//在新节点中选举成功，也没有必要继续在老节点中选举了
-						console.log('毋须考虑老节点');
+						console.log('毋须考虑旧节点');
 						resolve();//return
 						return;
 					}
 					console.log('本轮探测没有新节点，故在旧节点中选取');
-					connection.execute("select \"IP\" as \"tIP\",\"Hweight\" as \"tHweight\"  from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' ORDER BY \"Hweight\" DESC  ",function(err, result){
+					connection.execute("select \"IP\" as \"tIP\",\"Hweight\" as \"tHweight\"  from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' and \"HisDel\"=\'0\' ORDER BY \"Hweight\" DESC  ",function(err, result){
 						if(err){
 							console.error(err.message);
 							doRelease(connection);
@@ -597,7 +601,7 @@ function decisionMakerInOld(connection){
 							console.log('错误，本轮没能决策出新节点');
 							decisionSuccess = false;
 							//doRelease(connection);
-							reject();//不要让异常上抛
+							reject('错误，在函数decisionMakerInOld()中，没能决策出新的子节点，很可能是因为没有满足决策要求的子节点');//不要让异常上抛
 						}
 						console.log('本轮决策出的新的子节点的IP为：', newIndividualAgentIP);
 						console.log('本轮决策出的新的子节点的权重为：', newIndividualAgentWeight);
@@ -619,8 +623,8 @@ function finalUpdateAfterDecision(connection){
 		doRelease(connection);
 		return;
 	}
-	console.log('首先将所有节点的isNew字段置为0');
-	connection.execute("update \"STUDY\".\"Host\" set \"isNew\"=\'0\'", function(err){
+	console.log('首先将所有节点的isNew字段置为0，HisDel字段置为1');
+	connection.execute("update \"STUDY\".\"Host\" set \"isNew\"=\'0\', \"HisDel\"=\'1\'", function(err){
 		if(err){
 			console.error(err.message);
 			doRelease(connection);
