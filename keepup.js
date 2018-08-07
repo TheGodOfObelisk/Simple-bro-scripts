@@ -8,8 +8,6 @@ var config = {
 oracledb.autoCommit = true;//取消数据回滚
 var newIndividualAgentIP;//存放新个体节点的IP地址
 var newIndividualAgentWeight;//存放新个体节点的权重
-var decisionSuccess = false;//动态决策成功了吗？
-var hasNewHosts = true;//是否有新节点呢？
 
 /*********************************
 将[[....],[....],[....]]的形式转换为
@@ -91,7 +89,6 @@ oracledb.getConnection(
 			return;
 		}
 		console.log('数据库已连接');
-		//垃圾回调 回调地狱
 		clearWeightsInDB(connection).then(() => {
 			calculateOpenportNumWeightInDB(connection).then(() => {
 				calculateServiceNumWeightInDB(connection).then(() => {
@@ -99,11 +96,7 @@ oracledb.getConnection(
 						calculateFrequencyWeightInDB(connection).then(() => {
 							calculateServicePriority(connection).then(() => {
 								calculateTotalWeightInDB(connection).then(() => {
-									decisionMaker(connection).then(() => {
-										decisionMakerInOld(connection).then(() => {
-											finalUpdateAfterDecision(connection);
-										});
-									});
+									decisionMaker(connection);
 								});
 							});
 						});
@@ -146,7 +139,7 @@ function calculateOpenportNumWeightInDB(connection){
 				if(err){
 					console.error(err.message);
 					doRelease(connection);
-					reject(err);
+					reject();
 				}
 				console.log('1.1取数据阶段');
 				console.log(result.metaData);
@@ -174,7 +167,7 @@ function calculateOpenportNumWeightInDB(connection){
 						if(err){
 							console.error(err.message);
 							doRelease(connection);
-							reject(err);
+							reject();
 						}
 					});
 				}
@@ -199,7 +192,7 @@ function calculateServiceNumWeightInDB(connection){
 				if(err){
 					console.error(err.message);
 					doRelease(connection);
-					reject(err);
+					reject();
 				}
 				console.log('2.1取数据阶段');
 				console.log(result.metaData);
@@ -227,7 +220,7 @@ function calculateServiceNumWeightInDB(connection){
 						if(err){
 							console.error(err.message);
 							doRelease(connection);
-							reject(err);
+							reject();
 						}
 					});
 				}
@@ -249,7 +242,7 @@ function calculateTrafficWeightInDB(connection){
 				if(err){
 					console.error(err.message);
 					doRelease(connection);
-					reject(err);
+					reject();
 				}
 				console.log('3.1取数据阶段');
 				console.log(result.metaData);
@@ -277,7 +270,7 @@ function calculateTrafficWeightInDB(connection){
 						if(err){
 							console.error(err.message);
 							doRelease(connection);
-							reject(err);
+							reject();
 						}
 					});					
 				}
@@ -299,7 +292,7 @@ function calculateFrequencyWeightInDB(connection){
 				if(err){
 					console.error(err.message);
 					doRelease(connection);
-					reject(err);
+					reject();
 				}
 				console.log('4.1取数据阶段');
 				console.log(result.metaData);
@@ -327,7 +320,7 @@ function calculateFrequencyWeightInDB(connection){
 						if(err){
 							console.error(err.message);
 							doRelease(connection);
-							reject(err);
+							reject();
 						}
 					});
 				}
@@ -349,7 +342,7 @@ function calculateServicePriority(connection){
 				if(err){
 					console.error(err.message);
 					doRelease(connection);
-					reject(err);
+					reject();
 				}
 				console.log('5.1取数据阶段');
 				console.log(result.metaData);
@@ -414,7 +407,7 @@ function calculateServicePriority(connection){
 						if(err){
 							console.error(err.message);
 							doRelease(connection);
-							reject(err);
+							reject();
 						}
 					});
 				}
@@ -436,7 +429,7 @@ function calculateTotalWeightInDB(connection){
 				if(err){
 					console.error(err.message);
 					doRelease(connection);
-					reject(err);
+					reject();
 				}
 				console.log('6.1取数据阶段');
 				console.log(result.metaData);
@@ -464,7 +457,7 @@ function calculateTotalWeightInDB(connection){
 						if(err){
 							console.error(err.message);
 							doRelease(connection);
-							reject(err);
+							reject();
 						}
 					});
 				}
@@ -477,170 +470,59 @@ function calculateTotalWeightInDB(connection){
 	});
 }
 
-/***********决策阶段1（选举）*************/
 function decisionMaker(connection){
-	return new Promise((resolve, reject) => {
-		function _decisionMaker(connection){
-			console.log('***********决策阶段1（选举）*************');
-			//首先选取同时满足isAgent=0和isNew=1的节点
-			connection.execute("select \"IP\" as \"tIP\",\"Hweight\" as \"tHweight\"  from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' and \"isNew\"=\'1\' ORDER BY \"Hweight\" DESC  ",
-							function(err, result){
-				if(err){
-					console.error(err.message);
-					doRelease(connection);
-					reject(err);
-				}
-				//打印返回的表结构
-				console.log('新节点内容：');
-				console.log(result.metaData);
-				//打印返回的行数据
-				console.log(result.rows);
-				if(result.rows === undefined || result.rows.length == 0){//判断有没有新节点
-						console.log('没有新节点，准备在老节点中选举');
-						hasNewHosts = false;
-						resolve();
-						return;
-				}
-				newIndividualAgentWeight = 0;//初始设为0
-				let objArr = [];
-				//循环退出条件：
-				//1.遍历完所有数据（成功或失败）
-				//2.找到第一个满足要求的节点（提前退出）
-				//选举要求：
-				//权值最大且非子节点，同样权值取靠前的（暂定）
-				for(let host of result.rows){
-					//host[0]代表主机IP，host[1]代表主机权重
-					objArr.push(new FinalWeightKVA(host[0], host[1]));//每次只保留一个
-					console.log(objArr);
-					console.log(objArr[0]["ip"]);
-					if(typeof newIndividualAgentIP === "undefined")
-						newIndividualAgentIP = objArr[0]["ip"];//期望见到第一个非子节点的节点时给它赋值
-					if(newIndividualAgentWeight < objArr[0]["Hweight"]){//有权重更大且非子节点的节点，便更新，有必要，因为newIndividualAgentWeight的初始值为0
-						newIndividualAgentWeight = objArr[0]["Hweight"];
-						newIndividualAgentIP = objArr[0]["ip"];
-					}
-					if(newIndividualAgentWeight > objArr[0]["Hweight"]){
-						console.log('到达临界点，退出循环');
-						break;//降序排列，一旦出现比现在权值还要小的就没有必要再查找下去了
-					}
-					console.log(host);
-					//console.log(host.("tIP"));
-					//console.log(host[0]);
-					//console.log(host[1]);
-					objArr.pop();
-				}
-				if(typeof newIndividualAgentIP === "undefined"){
-					console.log('错误，本轮没能决策出新的子节点??');
-					decisionSuccess = false;
-					//doRelease(connection);垃圾
-					return;
-				}
-				console.log('本轮决策出的新的子节点的IP为：', newIndividualAgentIP);
-				console.log('本轮决策出的新的子节点的权重为：', newIndividualAgentWeight);
-				decisionSuccess = true;
-				//....
-				//别忘记最后还要更新该子节点的isAgent字段以及所有节点的isNew字段
-				//doRelease(connection);
-				resolve();
-			});
-		}
-		_decisionMaker(connection);
-	});
-}
-
-function decisionMakerInOld(connection){
-	return new Promise((resolve, reject) => {
-		function _decisionMakerInOld(connection){
-					if(hasNewHosts && (typeof newIndividualAgentIP === "undefined")){//当且仅当hasNewHosts确实为假且没有选举结果的时候，才在老节点中进行选举
-						console.log('严重错误？！');
-						//doRelease(connection);
-						reject();
-					}
-					if(typeof newIndividualAgentIP !== "undefined"){//在新节点中选举成功，也没有必要继续在老节点中选举了
-						console.log('毋须考虑老节点');
-						resolve();//return
-						return;
-					}
-					console.log('本轮探测没有新节点，故在旧节点中选取');
-					connection.execute("select \"IP\" as \"tIP\",\"Hweight\" as \"tHweight\"  from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' ORDER BY \"Hweight\" DESC  ",function(err, result){
-						if(err){
-							console.error(err.message);
-							doRelease(connection);
-							reject(err);//不要让异常上抛
-						}
-						//打印返回的表结构
-						console.log('旧节点内容：');
-						console.log(result);
-						console.log(result.metaData);
-						//打印返回的行数据
-						console.log(result.rows);
-						newIndividualAgentWeight = 0;//初始设为0
-						let objArr_old = [];
-						for(let host of result.rows){
-							objArr_old.push(new FinalWeightKVA(host[0], host[1]));
-							console.log(objArr_old);
-							console.log(objArr_old[0]["ip"]);
-							if(typeof newIndividualAgentIP === "undefined")
-								newIndividualAgentIP = objArr_old[0]["ip"];
-							if(newIndividualAgentWeight < objArr_old[0]["Hweight"]){
-								newIndividualAgentWeight = objArr_old[0]["Hweight"];
-								newIndividualAgentIP = objArr_old[0]["ip"];
-							}
-							if(newIndividualAgentWeight > objArr_old[0]["Hweight"]){
-								console.log('达到临界点，退出循环');
-								break;
-							}
-							console.log(host);
-							objArr_old.pop();
-						}
-						if(typeof newIndividualAgentIP === "undefined"){
-							console.log('错误，本轮没能决策出新节点');
-							decisionSuccess = false;
-							//doRelease(connection);
-							reject();//不要让异常上抛
-						}
-						console.log('本轮决策出的新的子节点的IP为：', newIndividualAgentIP);
-						console.log('本轮决策出的新的子节点的权重为：', newIndividualAgentWeight);
-						decisionSuccess = true;
-						//doRelease(connection);
-						resolve();
-						//return;
-					});
-			}
-			_decisionMakerInOld(connection);
-		});
-}
-
-/***********决策阶段2（更新）*************/
-function finalUpdateAfterDecision(connection){
-	console.log('***********决策阶段2（更新）*************');
-	if((typeof newIndividualAgentIP === "undefined") || decisionSuccess == false){
-		console('失败。退出');
-		doRelease(connection);
-		return;
-	}
-	console.log('首先将所有节点的isNew字段置为0');
-	connection.execute("update \"STUDY\".\"Host\" set \"isNew\"=\'0\'", function(err){
-		if(err){
-			console.error(err.message);
-			doRelease(connection);
-			return;
-		}
-		console.log('所有节点的isNew字段已经置为0');
-		console.log('下面将新子节点的isAgent字段置为1');
-		var sql_update_isagent = "update \"STUDY\".\"Host\" set \"isAgent\"=\'1\' where \"IP\"=\'" + newIndividualAgentIP.toString() + "\'";
-		connection.execute(sql_update_isagent, function(err1){
-			if(err1){
-				console.error(err1.message);
+		console.log('***********决策阶段*************');
+		//首先选取同时满足isAgent=0和isNew=1的节点
+		connection.execute("select \"IP\" as \"tIP\",\"Hweight\" as \"tHweight\"  from \"STUDY\".\"Host\" where \"isAgent\"=\'0\' ORDER BY \"Hweight\" DESC  ",
+						function(err, result){
+			if(err){
+				console.error(err.message);
 				doRelease(connection);
 				return;
 			}
-			console.log('新子节点的isAgent字段已经置为1');
-			console.log('****************决策结束*****************');
+			//打印返回的表结构
+			console.log(result.metaData);
+			//打印返回的行数据
+			console.log(result.rows);
+			newIndividualAgentWeight = 0;//初始设为0
+			let objArr = [];
+			//循环退出条件：
+			//1.遍历完所有数据（成功或失败）
+			//2.找到第一个满足要求的节点（提前退出）
+			//选举要求：
+			//权值最大且非子节点，同样权值取靠前的（暂定）
+			for(let host of result.rows){
+				//host[0]代表主机IP，host[1]代表主机权重
+				objArr.push(new FinalWeightKVA(host[0], host[1]));//每次只保留一个
+				console.log(objArr);
+				console.log(objArr[0]["ip"]);
+				if(typeof newIndividualAgentIP === "undefined")
+					newIndividualAgentIP = objArr[0]["ip"];//期望见到第一个非子节点的节点时给它赋值
+				if(newIndividualAgentWeight < objArr[0]["Hweight"]){//有权重更大且非子节点的节点，便更新，有必要，因为newIndividualAgentWeight的初始值为0
+					newIndividualAgentWeight = objArr[0]["Hweight"];
+					newIndividualAgentIP = objArr[0]["ip"];
+				}
+				if(newIndividualAgentWeight > objArr[0]["Hweight"]){
+					console.log('到达临界点，退出循环');
+					break;//降序排列，一旦出现比现在权值还要小的就没有必要再查找下去了
+				}
+				console.log(host);
+				//console.log(host.("tIP"));
+				//console.log(host[0]);
+				//console.log(host[1]);
+				objArr.pop();
+			}
+			if(typeof newIndividualAgentIP === "undefined"){
+				console.log('错误，本轮没能决策出新节点');
+				doRelease(connection);
+				return;
+			}
+			console.log('本轮决策出的新的子节点的IP为：', newIndividualAgentIP);
+			console.log('本轮决策出的新的子节点的权重为：', newIndividualAgentWeight);
+			//....
+			//别忘记最后还要更新该子节点的isAgent字段以及所有节点的isNew字段
 			doRelease(connection);
-			return;
-		})
-	});
+		});
 }
 
 function doRelease(connection){
