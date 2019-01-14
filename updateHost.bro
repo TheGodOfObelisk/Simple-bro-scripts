@@ -1,22 +1,27 @@
-## It aims at getting hosts'
-## USERNAME,    0      pay attention to NTLM PLZ
-## HOSTNAME,      1
-## MAC ADDRESS,  1
-## OPERATING SYSTEM,     1
-## IP ADDRESS    1
+# It aims at getting hosts'
+# USERNAME,    0      pay attention to NTLM PLZ
+# HOSTNAME,      1
+# MAC ADDRESS,  1
+# OPERATING SYSTEM,     1
+# IP ADDRESS    1
 
-## New elements 2019.1.9
-## How to sort ips?
-## Type          (indicates devicetype, etc desktop, laptop, tablet)
-## Applications  (Why do we need it? Should we guess during which period such applications are running?)
-## Protocols     (so many protocols, how to handle them? It exists between two hosts.)
+# New elements 2019.1.9
+# How to sort ips?
+# Type          (indicates devicetype, etc desktop, laptop, tablet)
+# Applications  (Why do we need it? Should we guess during which period such applications are running?)
+# Protocols     (so many protocols, how to handle them? It exists between two hosts.)
 
-## New considerations  2019.1.10
-## Maintain the information of hosts all the time and output it to log file regularly
+# New considerations  2019.1.10
+# Maintain the information of hosts all the time and output it to log file regularly
 
-## 2019.1.11
-## completed two functions named update_hostlist and update_single_host
-## test it
+# 2019.1.11
+# completed two functions named update_hostlist and update_single_host
+# test it
+
+# 2019.1.14
+# event new_connection: collect various protocols which are indicated by connections
+# event protocol_confirmation: this event is emitted when bro confirms that this protocol is actually running here
+# problem to solve: whether the protocols comes is a new protocol? Using !in is not appropriate.
 
 module HOST_INFO;
 
@@ -70,6 +75,8 @@ function update_single_host(hinfo: HOST_INFO::host_info, protocol: string, index
     }
     # check that whether protocol is a protocol related to this host
     # if not: concatenate "protocols"   separated by commas
+    # this check condition is not so good
+    # we'd better split protocols into individual items and compare them
     if(protocol != "" && protocol !in hostlist[index]$protocols){
         print fmt("update protocols because a new protocol of this host found");
         hostlist[index]$protocols += fmt(",%s", protocol);
@@ -331,6 +338,249 @@ event ntlm_authenticate(c: connection, request: NTLM::Authenticate){
     if(request ?$ user_name){
         print fmt("username: %s", request$user_name);
     }
+}
+
+# collect more protocol information here
+event protocol_confirmation(c: connection, atype: Analyzer::Tag, aid: count){
+    local src_ip: addr;
+    local dst_ip: addr;
+    local protocol: string;
+    if(c$id ?$ orig_h && c$id ?$ resp_h){
+        src_ip = c$id$orig_h;
+        dst_ip = c$id$resp_h;
+    }
+    switch(atype){
+        case Analyzer::ANALYZER_AYIYA:
+            protocol = "ayiya";
+            break;
+        case Analyzer::ANALYZER_BACKDOOR:
+            protocol = "backdoor";
+            break;
+        case Analyzer::ANALYZER_BITTORRENT:
+            protocol = "bittorrent";
+            break;
+        case Analyzer::ANALYZER_BITTORRENTTRACKER:
+            protocol = "bittorrenttracker";
+            break;
+        case Analyzer::ANALYZER_CONNSIZE:
+            protocol = "connsize";#??
+            break;
+        case Analyzer::ANALYZER_DCE_RPC:
+            protocol = "dce_rpc";
+            break;
+        case Analyzer::ANALYZER_DHCP:
+            protocol = "dhcp";
+            break;
+        case Analyzer::ANALYZER_DNP3_TCP:
+            protocol = "dnp3_tcp";
+            break;
+        case Analyzer::ANALYZER_DNP3_UDP:
+            protocol = "dnp3_udp";
+            break;
+        case Analyzer::ANALYZER_CONTENTS_DNS:
+            protocol = "contents_dns";
+            break;
+        case Analyzer::ANALYZER_DNS:
+            protocol = "dns";
+            break;
+        case Analyzer::ANALYZER_FTP_DATA:
+            protocol = "ftp_data";
+            break;
+        case Analyzer::ANALYZER_IRC_DATA:
+            protocol = "irc_data";
+            break;
+        case Analyzer::ANALYZER_FINGER:
+            protocol = "finger";
+            break;
+        case Analyzer::ANALYZER_FTP:
+            protocol = "ftp";
+            break;
+        case Analyzer::ANALYZER_FTP_ADAT:
+            protocol = "ftp_adat";
+            break;
+        case Analyzer::ANALYZER_GNUTELLA:
+            protocol = "gnutella";
+            break;
+        case Analyzer::ANALYZER_GSSAPI:
+            protocol = "gssapi";
+            break;
+        case Analyzer::ANALYZER_GTPV1:
+            protocol = "gtpv1";
+            break;
+        case Analyzer::ANALYZER_HTTP:
+            protocol = "http";
+            break;
+        case Analyzer::ANALYZER_ICMP:
+            protocol = "icmp";
+            break;
+        case Analyzer::ANALYZER_IDENT:
+            protocol = "ident";
+            break;
+        case Analyzer::ANALYZER_IMAP:
+            protocol = "imap";
+            break;
+        case  Analyzer::ANALYZER_INTERCONN:
+            protocol = "interconn";
+            break;
+        case Analyzer::ANALYZER_IRC:
+            protocol = "irc";
+            break;
+        case Analyzer::ANALYZER_KRB:
+            protocol = "krb";
+            break;
+        case Analyzer::ANALYZER_KRB_TCP:
+            protocol = "krb_tcp";# the previous one is its substring, how to handle this situation?
+            break;
+        case Analyzer::ANALYZER_CONTENTS_RLOGIN:
+            protocol = "contents_rlogin";
+            break;
+        case Analyzer::ANALYZER_CONTENTS_RSH:
+            protocol = "contents_rsh";
+            break;
+        case Analyzer::ANALYZER_LOGIN:
+            protocol = "login";
+            break;
+        case Analyzer::ANALYZER_NVT:
+            protocol = "nvt";
+            break;
+        case Analyzer::ANALYZER_RLOGIN:
+            protocol = "rlogin";
+            break;
+        case Analyzer::ANALYZER_RSH:
+            protocol = "rsh";
+            break;
+        case Analyzer::ANALYZER_TELNET:
+            protocol = "telnet";
+            break;
+        case Analyzer::ANALYZER_MODBUS:
+            protocol = "modbus";
+            break;
+        case Analyzer::ANALYZER_MYSQL:
+            protocol = "mysql";
+            break;
+        case Analyzer::ANALYZER_CONTENTS_NCP:
+            protocol = "contents_ncp";
+            break;
+        case Analyzer::ANALYZER_NCP:
+            protocol = "ncp";
+            break;
+        case Analyzer::ANALYZER_CONTENTS_NETBIOSSSN:
+            protocol = "contents_netbiosssn";
+            break;
+        case Analyzer::ANALYZER_NETBIOSSSN:
+            protocol = "netbiosssn";
+            break;
+        case Analyzer::ANALYZER_NTLM:
+            protocol = "ntlm";
+            break;
+        case Analyzer::ANALYZER_NTP:
+            protocol = "ntp";
+            break;
+        case Analyzer::ANALYZER_PIA_TCP:
+            protocol = "pia_tcp";
+            break;
+        case Analyzer::ANALYZER_PIA_UDP:
+            protocol = "pia_udp";
+            break;
+        case Analyzer::ANALYZER_POP3:
+            protocol = "pop3";
+            break;
+        case Analyzer::ANALYZER_RADIUS:
+            protocol = "radius";
+            break;
+        case Analyzer::ANALYZER_RDP:
+            protocol = "rdp";
+            break;
+        case Analyzer::ANALYZER_RFB:
+            protocol = "rfb";
+            break;
+        case Analyzer::ANALYZER_CONTENTS_NFS:
+            protocol = "contents_nfs";
+            break;
+        case Analyzer::ANALYZER_CONTENTS_RPC:
+            protocol = "contents_rpc";
+            break;
+        case Analyzer::ANALYZER_MOUNT:
+            protocol = "mount";
+            break;
+        case Analyzer::ANALYZER_NFS:
+            protocol = "nfs";
+            break;
+        case Analyzer::ANALYZER_PORTMAPPER:
+            protocol = "portmapper";
+            break;
+        case Analyzer::ANALYZER_SIP:
+            protocol = "sip";
+            break;
+        case Analyzer::ANALYZER_CONTENTS_SMB:
+            protocol = "contents_smb";
+            break;
+        case Analyzer::ANALYZER_SMB:
+            protocol = "smb";
+            break;
+        case Analyzer::ANALYZER_SMTP:
+            protocol = "smtp";
+            break;
+        case Analyzer::ANALYZER_SNMP:
+            protocol = "snmp";
+            break;
+        case Analyzer::ANALYZER_SOCKS:
+            protocol = "socks";
+            break;
+        case Analyzer::ANALYZER_SSH:
+            protocol = "ssh";
+            break;
+        case Analyzer::ANALYZER_DTLS:
+            protocol = "dtls";
+            break;
+        case Analyzer::ANALYZER_SSL:
+            protocol = "ssl";
+            break;
+        case Analyzer::ANALYZER_STEPPINGSTONE:
+            protocol = "steppingstone";
+            break;
+        case Analyzer::ANALYZER_SYSLOG:
+            protocol = "syslog";
+            break;
+        case Analyzer::ANALYZER_CONTENTLINE:
+            protocol = "contentline";
+            break;
+        case Analyzer::ANALYZER_CONTENTS:
+            protocol = "contents";
+            break;
+        case Analyzer::ANALYZER_TCP:
+            protocol = "tcp";
+            break;
+        case Analyzer::ANALYZER_TCPSTATS:
+            protocol = "tcpstats";
+            break;
+        case Analyzer::ANALYZER_TEREDO:
+            protocol = "teredo";
+            break;
+        case Analyzer::ANALYZER_UDP:
+            protocol = "udp";
+            break;
+        case Analyzer::ANALYZER_XMPP:
+            protocol = "xmpp";
+            break;
+        case Analyzer::ANALYZER_ZIP:
+            protocol = "zip";
+            break;
+        default:
+            print "Unexpected error: unknown protocol type!";
+            protocol = "error";
+            break;
+    }
+    if(protocol == "error")
+        return;
+    # both endpoints share the same protocol
+    local rec1: HOST_INFO::host_info = [$ts = network_time(), $ip = src_ip, $description = "protocol_confirmation" ];
+    local rec2: HOST_INFO::host_info = [$ts = network_time(), $ip = dst_ip, $description = "protocol_confirmation" ];
+    update_hostlist(rec1, protocol);
+    update_hostlist(rec2, protocol);
+    Log::write(HOST_INFO::HOST_INFO_LOG, rec1); 
+    Log::write(HOST_INFO::HOST_INFO_LOG, rec2);
+    print "a new protocol is logged";
 }
 
 event bro_init() &priority=10{
