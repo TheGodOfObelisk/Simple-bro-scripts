@@ -5,24 +5,37 @@
 # OPERATING SYSTEM,     1
 # IP ADDRESS    1
 
-# New elements 2019.1.9
 # How to sort ips?
 # Type          (indicates devicetype, etc desktop, laptop, tablet)
 # Applications  (Why do we need it? Should we guess during which period such applications are running?)
 # Protocols     (so many protocols, how to handle them? It exists between two hosts.)
 
-# New considerations  2019.1.10
+# 2019.1.13
 # Maintain the information of hosts all the time and output it to log file regularly
 
-# 2019.1.11
-# completed two functions named update_hostlist and update_single_host
-# test it
-
 # 2019.1.14
+# completed two functions named update_hostlist and update_single_host
+
+# 2019.1.15
 # event new_connection: collect various protocols which are indicated by connections
 # event protocol_confirmation: this event is emitted when bro confirms that this protocol is actually running here
 # problem to solve: whether the protocols comes is a new protocol? Using !in is not appropriate.
 
+# 2019.1.16
+# adjust the format of protocols   etc: http:33,dns:14
+# data to log cannot be a table
+
+# 2019.1.17
+# how to invoke a event in a specific interval
+# refer to test1.bro and define an event by ourself
+# this user-defined event can complish the task of logging hostlist every n seconds
+# outside dataprocesser can read the log every n seconds as well
+
+# 2019.1.18
+# convert ts to the form of "YYYY:MM:DD-HH:MM:SS", which is easier to understand
+# in "ips": mark the timestamp of each ip
+# in "protocols": mark the number that indicate how many time this protocol has beem confirmed
+# the value of n is dynamic
 module HOST_INFO;
 
 export{
@@ -32,7 +45,7 @@ export{
                             SUMMARY_HOST_LOG };
 
     # unfortunately, its json format is incorrect
-    # redef LogAscii::use_json = T;
+    redef LogAscii::use_json = T;
 	# Define the record type that will contain the data to log.
     type host_info: record{
         ts: time    &log;
@@ -47,30 +60,70 @@ export{
     };
 }
 
-## Use it to store host-info
+# Use it to store host-info
 global hostlist: vector of host_info = {};
 
+# Precondition: 0 <= index <= |hostlist|
+# Postcondition: cooresponding item has been updated
 function update_single_host(hinfo: HOST_INFO::host_info, protocol: string, index: int){
     # remember to initialize "ips" and "protocols"
-    print fmt("update index %d", index);
-    print hinfo;
+    # print fmt("update index %d", index);
+    # print hinfo;
+    local tmp_ip: string = fmt("%s", hinfo$ip);
     if(hostlist[index]$ips == ""){
-        print fmt("initialize ips of index %d", index);
-        hostlist[index]$ips = fmt("%s", hinfo$ip);
+        # print fmt("initialize ips of index %d", index);
+        local t: time = current_time();
+        hostlist[index]$ips = fmt("%s", strftime("%Y-%m-%d %H:%M:%S|", t) + tmp_ip);
     }
     if(hostlist[index]$protocols == ""){
-        print fmt("initialize protocols of index %d", index);
+        # print fmt("initialize protocols of index %d", index);
         hostlist[index]$protocols = protocol;
     }
     # check that whether ip is the newest ip
     if(hinfo$ip != hostlist[index]$ip){
-        print fmt("update ips because host's ip has been changed");
+        # print fmt("update ips because host's ip has been changed");
         # Maybe this host uses a new ip now, so I need to concatenate "ips"
         # Since these messages comes in order, I take it for granted that it is unnecessary to compare timestamp.
         hostlist[index]$ip = hinfo$ip; # update the newest ip
-        local tmp_ip: string = fmt("%s", hinfo$ip);
         if(tmp_ip !in hostlist[index]$ips){
-            hostlist[index]$ips += fmt(",%s", hinfo$ip);
+            # append to the end of ips
+            local t1: time = current_time();
+            hostlist[index]$ips += fmt(",%s", strftime("%Y-%m-%d %H:%M:%S|", t1) + tmp_ip);
+        } else {
+            # in this case, the previous ts should be updated
+            local comma: pattern = /,/;
+            local tmp_tlb: table[count] of string = split(hostlist[index]$ips, comma);
+            local ori_len: count = |tmp_tlb|;
+            print fmt("previous len: %d", ori_len);
+            for(key in tmp_tlb){
+                print key;
+                print tmp_tlb[key];
+                if(tmp_ip in tmp_tlb[key]){
+                    # this item should be updated
+                    local t2: time = current_time();
+                    if(key == ori_len){ # the last item
+                        tmp_tlb[key] = fmt("%s", strftime("%Y-%m-%d %H:%M:%S|", t2) + tmp_ip);
+                        print fmt("the last item: %s", tmp_tlb[key]);
+                    }
+                    else{ # previous items
+                        tmp_tlb[key] = fmt("%s,", strftime("%Y-%m-%d %H:%M:%S|", t2) + tmp_ip);
+                        print fmt("previous item: %s", tmp_tlb[key]);
+                    }
+                } else if(key != ori_len){
+                    tmp_tlb[key] += ",";
+                }
+            }
+            print "before cat!";
+            for(key in tmp_tlb){
+                print fmt("[%d]=>%s", key, tmp_tlb[key]);
+            }
+            hostlist[index]$ips = cat_string_array(tmp_tlb); # overwrite
+            print fmt("after cat:%s", hostlist[index]$ips);
+            # recheck the number of commas in ips
+            if(ori_len != |split(hostlist[index]$ips, comma)|){
+                print "Unexpected error: the number of commas is wrong";
+                print fmt("ori_len: %d, new len: %d", ori_len, |split(hostlist[index]$ips, comma)|);
+            }
         }
     }
     # check that whether protocol is a protocol related to this host
@@ -78,7 +131,7 @@ function update_single_host(hinfo: HOST_INFO::host_info, protocol: string, index
     # this check condition is not so good
     # we'd better split protocols into individual items and compare them
     if(protocol != "" && protocol !in hostlist[index]$protocols){
-        print fmt("update protocols because a new protocol of this host found");
+        # print fmt("update protocols because a new protocol of this host found");
         hostlist[index]$protocols += fmt(",%s", protocol);
     }
     # update timestamp
@@ -86,12 +139,12 @@ function update_single_host(hinfo: HOST_INFO::host_info, protocol: string, index
     # update hostname iff a different hostname comes
     if(hinfo$hostname != "" && hinfo$hostname != hostlist[index]$hostname){
         # in the case of empty string, initialize it
-        print fmt("initialize the hostname field of this host");
+        # print fmt("initialize the hostname field of this host");
         hostlist[index]$hostname = hinfo$hostname;
     }
     # update os
     if(hinfo$os != "" && hinfo$os != hostlist[index]$os){
-        print fmt("update os field of this host");
+        # print fmt("update os field of this host");
         hostlist[index]$os = hinfo$os;
     }
     # update mac
@@ -99,18 +152,20 @@ function update_single_host(hinfo: HOST_INFO::host_info, protocol: string, index
     # we reconsider it in the second branch in update_hostlist.
     if(hinfo$mac != "" && hostlist[index]$mac == ""){
         # initialize mac field
-        print fmt("initialize mac field of this host");
+        # print fmt("initialize mac field of this host");
         hostlist[index]$mac = hinfo$mac;
     }
     # update username
     if(hinfo$username != "" && hostlist[index]$username == ""){
-        print fmt("update username field of this host");
+        # print fmt("update username field of this host");
         hostlist[index]$username = hinfo$username;
     }
 }
 
+# Precondition: hinfo comes from fragmentary records
+# Postcondition: update contents of hostlist with hinfo
 function update_hostlist(hinfo: HOST_INFO::host_info, protocol: string){
-    print "prepare to update";
+    # print "prepare to update";
     local has_updated: bool = F;
     if(hinfo$mac != "" || hinfo$hostname != ""){
         # I believe that mac addresses and hostnames can uniquely identify a host.
@@ -138,7 +193,7 @@ function update_hostlist(hinfo: HOST_INFO::host_info, protocol: string){
         }
         if(!has_updated){
             # At this point, all correct info should have been updated
-            print "Unexpected error: how to update this data ", hinfo;
+            print "incomplete information, skip it ", hinfo;
         }
     }
 }
@@ -574,13 +629,22 @@ event protocol_confirmation(c: connection, atype: Analyzer::Tag, aid: count){
     if(protocol == "error")
         return;
     # both endpoints share the same protocol
-    local rec1: HOST_INFO::host_info = [$ts = network_time(), $ip = src_ip, $description = "protocol_confirmation" ];
-    local rec2: HOST_INFO::host_info = [$ts = network_time(), $ip = dst_ip, $description = "protocol_confirmation" ];
+    local rec1: HOST_INFO::host_info = [$ts = network_time(), $ip = src_ip, $description = protocol ];
+    local rec2: HOST_INFO::host_info = [$ts = network_time(), $ip = dst_ip, $description = protocol ];
     update_hostlist(rec1, protocol);
     update_hostlist(rec2, protocol);
     Log::write(HOST_INFO::HOST_INFO_LOG, rec1); 
     Log::write(HOST_INFO::HOST_INFO_LOG, rec2);
-    print "a new protocol is logged";
+    # print "a new protocol is logged";
+}
+
+# try to get software info
+event software_unparsed_version_found(c: connection, host: addr, str: string){
+    
+}
+
+event software_version_found(c: connection, host: addr, s: software, descr: string){
+    
 }
 
 event bro_init() &priority=10{
@@ -593,8 +657,6 @@ event bro_init() &priority=10{
                                 $include=set("ip","hostname","username","mac","os","ips","protocols")];
     Log::add_filter(HOST_INFO::SUMMARY_HOST_LOG, filter);
 }
-
-
 
 event bro_init(){
     print "start";
