@@ -31,11 +31,16 @@
 # this user-defined event can complish the task of logging hostlist every n seconds
 # outside dataprocesser can read the log every n seconds as well
 
-# 2019.1.18
+# 2019.1.18 todo-list
 # convert ts to the form of "YYYY:MM:DD-HH:MM:SS", which is easier to understand
 # in "ips": mark the timestamp of each ip
 # in "protocols": mark the number that indicate how many time this protocol has beem confirmed
 # the value of n is dynamic
+# there are some problems in updating ips
+# 1. segment fault
+# 2. redundant ip in "ips" field
+# 3, three records missing ips(uninitialized)
+# 4. the way to check a ip already exist? etc: 192.168.1.5, 192.168.1.50 substring is not reliable
 module HOST_INFO;
 
 export{
@@ -63,13 +68,17 @@ export{
 # Use it to store host-info
 global hostlist: vector of host_info = {};
 
+
 # Precondition: 0 <= index <= |hostlist|
 # Postcondition: cooresponding item has been updated
 function update_single_host(hinfo: HOST_INFO::host_info, protocol: string, index: int){
     # remember to initialize "ips" and "protocols"
     # print fmt("update index %d", index);
     # print hinfo;
+    print fmt("index is : %d", index);
     local tmp_ip: string = fmt("%s", hinfo$ip);
+    local up_index: count = 0;
+    print fmt("the ip is %s", tmp_ip);
     if(hostlist[index]$ips == ""){
         # print fmt("initialize ips of index %d", index);
         local t: time = current_time();
@@ -85,46 +94,74 @@ function update_single_host(hinfo: HOST_INFO::host_info, protocol: string, index
         # Maybe this host uses a new ip now, so I need to concatenate "ips"
         # Since these messages comes in order, I take it for granted that it is unnecessary to compare timestamp.
         hostlist[index]$ip = hinfo$ip; # update the newest ip
+        # maybe we need a new way to determine whether the ip is new: edit the if condition
         if(tmp_ip !in hostlist[index]$ips){
-            # append to the end of ips
+            # a new ip comes, append it to the end of ips
             local t1: time = current_time();
             hostlist[index]$ips += fmt(",%s", strftime("%Y-%m-%d %H:%M:%S|", t1) + tmp_ip);
+            print "append ips";
         } else {
+            print "update ips";
             # in this case, the previous ts should be updated
             local comma: pattern = /,/;
             local tmp_tlb: table[count] of string = split(hostlist[index]$ips, comma);
             local ori_len: count = |tmp_tlb|;
-            print fmt("previous len: %d", ori_len);
+            # tmp_tlb_ip holds the ips in tmp_tlb and has the same index as tmp_tlb
+            # To ensure the coming ip is a new ip or not clearly.
+            local tmp_tlb_ip: table[count] of string;
             for(key in tmp_tlb){
-                print key;
-                print tmp_tlb[key];
-                if(tmp_ip in tmp_tlb[key]){
-                    # this item should be updated
-                    local t2: time = current_time();
-                    if(key == ori_len){ # the last item
-                        tmp_tlb[key] = fmt("%s", strftime("%Y-%m-%d %H:%M:%S|", t2) + tmp_ip);
-                        print fmt("the last item: %s", tmp_tlb[key]);
-                    }
-                    else{ # previous items
-                        tmp_tlb[key] = fmt("%s,", strftime("%Y-%m-%d %H:%M:%S|", t2) + tmp_ip);
-                        print fmt("previous item: %s", tmp_tlb[key]);
-                    }
-                } else if(key != ori_len){
-                    tmp_tlb[key] += ",";
-                }
+                local bin_tlb: table[count] of string = split(tmp_tlb[key], /\|/);
+                tmp_tlb_ip[key] = bin_tlb[2];
             }
-            print "before cat!";
+            print fmt("previous len: %d", ori_len);
+            print "what is in ips now ?";
+            print hostlist[index]$ips;
+            print "what is in  tmp_tlb now?";
+            print tmp_tlb;
+            for(key in tmp_tlb_ip){# use tmp_tlb_ip to determine the key to store
+                print key;    # To avoid missing ips, we should initialize "ips" when we append a new item
+                print tmp_tlb_ip[key];
+                print "start checking";
+                if(tmp_ip == tmp_tlb_ip[key]){
+                    # this item should be updated
+                    print "bingo";
+                    # here is strange segment fault when I try to directly overwrite tmp_tlb[key] here
+                    # so I record the value of key instead
+                    up_index = key;
+                    # tmp_tlb[key] = fmt("%s", strftime("%Y-%m-%d %H:%M:%S|", t2) + tmp_ip);
+                    # print fmt("the last item: %s", tmp_tlb[key]);
+                    # if(key == ori_len){ # the last item
+                    #     tmp_tlb[key] = fmt("%s", strftime("%Y-%m-%d %H:%M:%S|", t2) + tmp_ip);
+                    #     print fmt("the last item: %s", tmp_tlb[key]);
+                    # }
+                    # else{ # previous items
+                    #     tmp_tlb[key] = fmt("%s", strftime("%Y-%m-%d %H:%M:%S|", t2) + tmp_ip);
+                    #     print fmt("previous item: %s", tmp_tlb[key]);
+                    # }
+                }
+                print "end checking";
+            }
+            print "before join!";
+            if(up_index != 0){
+                # up_index is applied to update tmp_tlb
+                # from now on, tmp_tlb_ip is useless
+                local t2: time = current_time();
+                tmp_tlb[up_index] = fmt("%s", strftime("%Y-%m-%d %H:%M:%S|", t2) + tmp_ip);
+            }
             for(key in tmp_tlb){
                 print fmt("[%d]=>%s", key, tmp_tlb[key]);
             }
-            hostlist[index]$ips = cat_string_array(tmp_tlb); # overwrite
-            print fmt("after cat:%s", hostlist[index]$ips);
+            # hostlist[index]$ips = cat_string_array(tmp_tlb); # overwrite
+            hostlist[index]$ips = join_string_array(",", tmp_tlb);
+            print fmt("after join:%s", hostlist[index]$ips);
             # recheck the number of commas in ips
             if(ori_len != |split(hostlist[index]$ips, comma)|){
                 print "Unexpected error: the number of commas is wrong";
                 print fmt("ori_len: %d, new len: %d", ori_len, |split(hostlist[index]$ips, comma)|);
             }
         }
+    } else {
+        print "do not update ips";
     }
     # check that whether protocol is a protocol related to this host
     # if not: concatenate "protocols"   separated by commas
@@ -178,7 +215,11 @@ function update_hostlist(hinfo: HOST_INFO::host_info, protocol: string){
             }
         }
         if(!has_updated) {
+            # To avoid missing ips, we should initialize "ips" when we append a new item
             hostlist[|hostlist|] = hinfo;
+            local wall_time: time = network_time();
+            local tmp_ip: string = fmt("%s", hinfo$ip);
+            hostlist[|hostlist|]$ips += fmt("%s", strftime("%Y-%m-%d %H:%M:%S|", wall_time) + tmp_ip);
             has_updated = T;
         }
     }
