@@ -86,7 +86,7 @@ function update_single_host(hinfo: HOST_INFO::host_info, protocol: string, index
     }
     if(hostlist[index]$protocols == ""){
         # print fmt("initialize protocols of index %d", index);
-        hostlist[index]$protocols = protocol;
+        hostlist[index]$protocols = protocol + ":1";
     }
     # check that whether ip is the newest ip
     if(hinfo$ip != hostlist[index]$ip){
@@ -167,9 +167,37 @@ function update_single_host(hinfo: HOST_INFO::host_info, protocol: string, index
     # if not: concatenate "protocols"   separated by commas
     # this check condition is not so good
     # we'd better split protocols into individual items and compare them
+    up_index = 0; # reinitialize up_index
     if(protocol != "" && protocol !in hostlist[index]$protocols){
         # print fmt("update protocols because a new protocol of this host found");
-        hostlist[index]$protocols += fmt(",%s", protocol);
+        hostlist[index]$protocols += fmt(",%s:1", protocol);
+    } else {
+        # record the count
+        local pro_tlb: table[count] of string = split(hostlist[index]$protocols, /,/);
+        local pro_tlb_tmp: table[count] of string;
+        print "start updating protocols";
+        print pro_tlb;
+        for(key in pro_tlb){
+            local bin_p_tlb: table[count] of string = split(pro_tlb[key], /:/);
+            pro_tlb_tmp[key] = bin_p_tlb[1];
+        }
+        for(key in pro_tlb_tmp){
+            if(protocol == pro_tlb_tmp[key]){
+                # increase by one later
+                up_index = key;
+            }
+            if(up_index != 0){
+                local bin_p_tlb1: table[count] of string = split(pro_tlb[up_index], /:/);
+                local num_s: string = bin_p_tlb1[2];
+                local num_v: count = to_count(num_s);
+                num_v += 1;
+                pro_tlb[up_index] = fmt("%s:%d", bin_p_tlb1[1], num_v);
+            }
+            for(key in pro_tlb){
+                print fmt("[%d]=>%s", key, pro_tlb[key]);
+            }
+            hostlist[index]$protocols = join_string_array(",", pro_tlb);
+        }
     }
     # update timestamp
     hostlist[index]$ts = hinfo$ts;
